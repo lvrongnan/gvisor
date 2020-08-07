@@ -118,7 +118,49 @@ func TTL(ttl uint8) NetworkChecker {
 			v = ip.HopLimit()
 		}
 		if v != ttl {
-			t.Fatalf("Bad TTL, got %v, want %v", v, ttl)
+			t.Fatalf("Bad TTL, got %d, want %d", v, ttl)
+		}
+	}
+}
+
+// FullLen creates a checker for the full IP packet length in the header.
+// This checks against both the header declared packet size and the number of
+// bytes received.
+func FullLen(plen uint16) NetworkChecker {
+	return func(t *testing.T, h []header.Network) {
+		t.Helper()
+
+		var v uint16
+		var l uint16
+		switch ip := h[0].(type) {
+		case header.IPv4:
+			v = ip.TotalLength()
+			l = uint16(len(ip))
+		case header.IPv6:
+			v = ip.PayloadLength() + header.IPv6FixedHeaderSize
+			l = uint16(len(ip))
+		}
+		if l != plen {
+			t.Errorf("bad packet length, got = %d, want = %d", l, plen)
+		}
+		if v != uint16(plen) {
+			t.Errorf("unexpected packet length in header, got = %d, want = %d", v, plen)
+		}
+	}
+}
+
+// HeaderLen creates a checker that checks the IPv4 Header length.
+// Not useful for IPv6.
+func HeaderLen(hlen int) NetworkChecker {
+	return func(t *testing.T, h []header.Network) {
+		t.Helper()
+
+		// We only do this of IPv4 for now.
+		switch ip := h[0].(type) {
+		case header.IPv4:
+			if hl := ip.HeaderLength(); hl != uint8(hlen) {
+				t.Errorf("Bad header length, got = %d, want = %d", hl, hlen)
+			}
 		}
 	}
 }
@@ -129,7 +171,7 @@ func PayloadLen(plen int) NetworkChecker {
 		t.Helper()
 
 		if l := len(h[0].Payload()); l != plen {
-			t.Errorf("Bad payload length, got %v, want %v", l, plen)
+			t.Errorf("Bad payload length, got %d, want %d", l, plen)
 		}
 	}
 }
@@ -724,10 +766,10 @@ func ICMPv4Type(want header.ICMPv4Type) TransportChecker {
 
 		icmpv4, ok := h.(header.ICMPv4)
 		if !ok {
-			t.Fatalf("unexpected transport header passed to checker got: %+v, want: header.ICMPv4", h)
+			t.Fatalf("unexpected transport header passed to checker: got = %T, want = header.ICMPv4", h)
 		}
 		if got := icmpv4.Type(); got != want {
-			t.Fatalf("unexpected icmp type got: %d, want: %d", got, want)
+			t.Fatalf("unexpected icmp type, got = %d, want = %d", got, want)
 		}
 	}
 }
@@ -739,10 +781,77 @@ func ICMPv4Code(want header.ICMPv4Code) TransportChecker {
 
 		icmpv4, ok := h.(header.ICMPv4)
 		if !ok {
-			t.Fatalf("unexpected transport header passed to checker got: %+v, want: header.ICMPv4", h)
+			t.Fatalf("unexpected transport header passed to checker: got = %T, want = header.ICMPv4", h)
 		}
 		if got := icmpv4.Code(); got != want {
-			t.Fatalf("unexpected ICMP code got: %d, want: %d", got, want)
+			t.Fatalf("unexpected ICMP code, got = %d, want = %d", got, want)
+		}
+	}
+}
+
+// ICMPv4Ident creates a checker that checks the ICMPv4 echo Ident.
+func ICMPv4Ident(want uint16) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		t.Helper()
+
+		icmpv4, ok := h.(header.ICMPv4)
+		if !ok {
+			t.Fatalf("unexpected transport header passed to checker: got = %T, want = header.ICMPv4", h)
+		}
+		if got := icmpv4.Ident(); got != want {
+			t.Fatalf("unexpected ICMP ident, got = %d, want = %d", got, want)
+		}
+	}
+}
+
+// ICMPv4Seq creates a checker that checks the ICMPv4 echo Sequence.
+func ICMPv4Seq(want uint16) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		t.Helper()
+
+		icmpv4, ok := h.(header.ICMPv4)
+		if !ok {
+			t.Fatalf("unexpected transport header passed to checker: got = %T, want = header.ICMPv4", h)
+		}
+		if got := icmpv4.Sequence(); got != want {
+			t.Fatalf("unexpected ICMP sequence, got = %d, want = %d", got, want)
+		}
+	}
+}
+
+// ICMPv4Checksum creates a checker that checks the ICMPv4 Checksum.
+// This assumes that the payload makes up the rest of the slice.
+func ICMPv4Checksum() TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		t.Helper()
+
+		icmpv4, ok := h.(header.ICMPv4)
+		if !ok {
+			t.Fatalf("unexpected transport header passed to checker: got = %T, want = header.ICMPv4", h)
+		}
+		heldChecksum := icmpv4.Checksum()
+		icmpv4.SetChecksum(0)
+		newChecksum := ^header.Checksum(icmpv4, 0)
+		icmpv4.SetChecksum(heldChecksum)
+		if heldChecksum != newChecksum {
+			t.Errorf("unexpected ICMP checksum, got = %d, want = %d", heldChecksum, newChecksum)
+		}
+	}
+}
+
+// ICMPv4Payload creates a checker that checks the payload in an error or
+// echo/reply type message since they all have 8 byte headers.
+func ICMPv4Payload(want []byte) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		t.Helper()
+
+		icmpv4, ok := h.(header.ICMPv4)
+		if !ok {
+			t.Fatalf("unexpected transport header passed to checker: got = %T, want = header.ICMPv4", h)
+		}
+		payload := icmpv4.Payload()
+		if diff := cmp.Diff(payload, want); diff != "" {
+			t.Errorf("got ICMP payload mismatch (-want +got):\n%s", diff)
 		}
 	}
 }
@@ -782,7 +891,7 @@ func ICMPv6Type(want header.ICMPv6Type) TransportChecker {
 
 		icmpv6, ok := h.(header.ICMPv6)
 		if !ok {
-			t.Fatalf("unexpected transport header passed to checker got: %+v, want: header.ICMPv6", h)
+			t.Fatalf("unexpected transport header passed to checker got = %T, want = header.ICMPv6", h)
 		}
 		if got := icmpv6.Type(); got != want {
 			t.Fatalf("unexpected icmp type got: %d, want: %d", got, want)
@@ -797,7 +906,7 @@ func ICMPv6Code(want header.ICMPv6Code) TransportChecker {
 
 		icmpv6, ok := h.(header.ICMPv6)
 		if !ok {
-			t.Fatalf("unexpected transport header passed to checker got: %+v, want: header.ICMPv6", h)
+			t.Fatalf("unexpected transport header passed to checker got = %T, want = header.ICMPv6", h)
 		}
 		if got := icmpv6.Code(); got != want {
 			t.Fatalf("unexpected ICMP code got: %d, want: %d", got, want)

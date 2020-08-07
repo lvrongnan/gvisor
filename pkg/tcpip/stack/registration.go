@@ -210,6 +210,10 @@ const (
 	// listeners interested in the packet and the transport protocol has no means
 	// to notify the sender.
 	TransportPacketDestinationPortUnreachable
+
+	// TransportPacketProtoUnreachable indicates that the transport
+	// protocol requested in the packet is not supported.
+	TransportPacketProtoUnreachable
 )
 
 // TransportDispatcher contains the methods used by the network stack to deliver

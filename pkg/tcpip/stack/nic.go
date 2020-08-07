@@ -1401,10 +1401,8 @@ func (n *NIC) forwardPacket(r *Route, protocol tcpip.NetworkProtocolNumber, pkt 
 func (n *NIC) DeliverTransportPacket(r *Route, protocol tcpip.TransportProtocolNumber, pkt *PacketBuffer) TransportPacketDisposition {
 	state, ok := n.stack.transportProtocols[protocol]
 	if !ok {
-		// TODO(gvisor.dev/issue/4365): Let the caller know that the transport
-		// protocol is unrecognized.
 		n.stack.stats.UnknownProtocolRcvdPackets.Increment()
-		return TransportPacketHandled
+		return TransportPacketProtoUnreachable
 	}
 
 	transProto := state.proto
@@ -1414,6 +1412,7 @@ func (n *NIC) DeliverTransportPacket(r *Route, protocol tcpip.TransportProtocolN
 	// validly formed.
 	n.stack.demux.deliverRawPacket(r, protocol, pkt)
 
+	// TODO(gvisor.dev/issue/3810): This issue should fix both the cases below.
 	// TransportHeader is empty only when pkt is an ICMP packet or was reassembled
 	// from fragments.
 	if pkt.TransportHeader().View().IsEmpty() {
